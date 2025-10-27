@@ -1,0 +1,38 @@
+# OS/Editor
+.DS_Store
+.idea/
+.vscode/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.egg-info/
+
+# Virtual envs
+.venv/
+venv/
+
+# Secrets/Env
+.env
+
+# Logs and PIDs
+*.log
+*.pid
+logs/
+
+# Data artifacts
+data/good-data/
+data/ingested-archive/
+data/processed-data/
+data/raw-data/movies_sample_*.csv
+
+# Models/Artifacts
+*.pkl
+
+# Airflow cache/compiles
+dags/__pycache__/
+app/__pycache__/
+scripts/__pycache__/
+

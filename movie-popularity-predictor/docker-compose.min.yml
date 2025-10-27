@@ -1,0 +1,48 @@
+services:
+  postgres_db:
+    image: postgres:14
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/db_init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  # Combined API + Streamlit app in one container
+  appstack:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    working_dir: /app/app
+    command: bash /app/scripts/run-appstack.sh
+    restart: always
+    environment:
+      # The Streamlit app talks to the API inside the same container
+      API_URL: http://127.0.0.1:8000
+      # DB settings for predictions history
+      POSTGRES_HOST: postgres_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PREDICTIONS_HOST: postgres_db
+      PREDICTIONS_USER: ${POSTGRES_USER}
+      PREDICTIONS_PASSWORD: ${POSTGRES_PASSWORD}
+      PREDICTIONS_DB: predictions
+      # Optional: increase API timeout in Streamlit
+      API_TIMEOUT_SECONDS: "20"
+    ports:
+      - "8501:8501"   # Streamlit UI
+      - "8000:8000"   # API (optional, for debugging)
+    volumes:
+      - ./app:/app/app
+      - ./scripts:/app/scripts
+    depends_on:
+      - postgres_db
+
+volumes:
+  postgres_data:
+

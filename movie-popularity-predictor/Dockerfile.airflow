@@ -1,0 +1,31 @@
+# Use a specific, recent, and stable version of Airflow
+FROM apache/airflow:2.9.2-python3.11
+
+# Set the Airflow home directory
+ENV AIRFLOW_HOME=/opt/airflow
+
+# Switch to root user for initial setup that requires permissions
+USER root
+
+# Create directories and set ownership early
+RUN mkdir -p /opt/airflow/dags /opt/airflow/logs /opt/airflow/plugins \
+    && chown -R airflow: ${AIRFLOW_HOME}
+
+# Copy the new, Airflow-specific requirements and the wait script
+# Use --chown to set the correct owner and group immediately.
+COPY --chown=airflow:airflow requirements-airflow.txt /requirements-airflow.txt
+COPY --chown=airflow:airflow scripts/wait-for-postgres.sh /opt/airflow/scripts/wait-for-postgres.sh
+
+# Set executable permissions for the wait script
+RUN chmod +x /opt/airflow/scripts/wait-for-postgres.sh
+
+# Switch to the non-root airflow user for better security
+USER airflow
+
+# Install dependencies as the airflow user, using the new requirements file
+RUN pip install --no-cache-dir -r /requirements-airflow.txt \
+    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.2/constraints-3.11.txt"
+
+# Copy the rest of the project files as the airflow user
+COPY --chown=airflow:airflow . /opt/airflow
+

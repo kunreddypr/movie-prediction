@@ -1,0 +1,193 @@
+# This Docker Compose file sets up a multi-container environment for the
+# Movie Popularity Predictor MLOps project.
+
+services:
+  # PostgreSQL Database Service
+  # Acts as the metadata database for Apache Airflow.
+  postgres_db:
+    image: postgres:14
+    restart: always
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/db_init:/docker-entrypoint-initdb.d
+    ports:
+      - "5432:5432"
+
+  # Airflow Database Initialization Service
+  # A one-time task to set up the Airflow database schema.
+  airflow-init:
+    profiles: ["airflow"]
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    user: "${AIRFLOW_UID:-50000}"
+    command: >
+      bash -c "/opt/airflow/scripts/wait-for-postgres.sh postgres_db 'airflow db init'"
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+    volumes:
+      # ADDED: Explicit volumes are required for a functional Airflow setup.
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+    depends_on:
+      - postgres_db
+
+  # Airflow Webserver Service
+  # The user interface for Apache Airflow.
+  airflow-webserver:
+    profiles: ["airflow"]
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    restart: always
+    user: "${AIRFLOW_UID:-50000}"
+    command: webserver
+    ports:
+      - "8080:8080"
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PREDICTIONS_HOST: postgres_db
+      PREDICTIONS_USER: ${POSTGRES_USER}
+      PREDICTIONS_PASSWORD: ${POSTGRES_PASSWORD}
+      PREDICTIONS_DB: predictions
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+      PYTHONPATH: /opt/airflow
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # Airflow Scheduler Service
+  # Handles scheduling and triggering of DAGs.
+  airflow-scheduler:
+    profiles: ["airflow"]
+    build:
+      context: .
+      dockerfile: Dockerfile.airflow
+    restart: always
+    user: "${AIRFLOW_UID:-50000}"
+    command: scheduler
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PREDICTIONS_HOST: postgres_db
+      PREDICTIONS_USER: ${POSTGRES_USER}
+      PREDICTIONS_PASSWORD: ${POSTGRES_PASSWORD}
+      PREDICTIONS_DB: predictions
+      AIRFLOW__CORE__EXECUTOR: LocalExecutor
+      AIRFLOW__CORE__LOAD_EXAMPLES: 'false'
+      AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres_db:5432/${POSTGRES_DB}
+      PYTHONPATH: /opt/airflow
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./logs:/opt/airflow/logs
+      - ./plugins:/opt/airflow/plugins
+      - ./data:/opt/airflow/data
+    depends_on:
+      airflow-init:
+        condition: service_completed_successfully
+
+  # Application Model Training Service
+  # A one-time task to train the ML model on startup.
+  app-init:
+    profiles: ["train"]
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    working_dir: /app/app
+    command: python train_model.py
+    volumes:
+      - ./app:/app/app
+
+  # FastAPI Application Service
+  # Serves the trained ML model predictions via a REST API.
+  api:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    restart: always
+    working_dir: /app/app
+    command: uvicorn api:app --host 0.0.0.0 --port 8000
+    ports:
+      - "8000:8000"
+    environment:
+      POSTGRES_HOST: postgres_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PREDICTIONS_HOST: postgres_db
+      PREDICTIONS_USER: ${POSTGRES_USER}
+      PREDICTIONS_PASSWORD: ${POSTGRES_PASSWORD}
+      PREDICTIONS_DB: predictions
+    volumes:
+      - ./app:/app/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+    depends_on:
+      postgres_db:
+        condition: service_started
+      app-init:
+        condition: service_completed_successfully
+
+  # Streamlit Web Application Service
+  # Provides the user interface for interacting with the model.
+  webapp:
+    build:
+      context: .
+      dockerfile: Dockerfile.app
+    restart: always
+    working_dir: /app/app
+    command: streamlit run streamlit_app.py --server.port 8501 --server.address 0.0.0.0
+    ports:
+      - "8501:8501"
+    environment:
+      API_URL: http://api:8000
+      POSTGRES_HOST: postgres_db
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+      PREDICTIONS_HOST: postgres_db
+      PREDICTIONS_USER: ${POSTGRES_USER}
+      PREDICTIONS_PASSWORD: ${POSTGRES_PASSWORD}
+      PREDICTIONS_DB: predictions
+    volumes:
+      - ./app:/app/app
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8501/ >/dev/null || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 15s
+    depends_on:
+      api:
+        condition: service_healthy
+      postgres_db:
+        condition: service_started
+
+# Named volumes for persistent data
+volumes:
+  postgres_data:
+
