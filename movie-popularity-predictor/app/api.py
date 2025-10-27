@@ -27,96 +27,11 @@ DEFAULT_TFIDF_PATH = Path(TFIDF_PATH)
 MODEL_PATH = Path(os.getenv('MODEL_PATH', str(DEFAULT_MODEL_PATH)))
 TFIDF_PATH = Path(os.getenv('TFIDF_PATH', str(DEFAULT_TFIDF_PATH)))
 
-
-def _load_db_config() -> Optional[dict]:
-    """Build connection settings for the predictions database if configured."""
-
-    host = os.getenv('PREDICTIONS_HOST') or os.getenv('POSTGRES_HOST')
-    dbname = os.getenv('PREDICTIONS_DB') or os.getenv('POSTGRES_DB')
-    user = os.getenv('PREDICTIONS_USER') or os.getenv('POSTGRES_USER')
-    password = os.getenv('PREDICTIONS_PASSWORD') or os.getenv('POSTGRES_PASSWORD')
-    port = os.getenv('PREDICTIONS_PORT') or os.getenv('POSTGRES_PORT')
-
-    if not (host and dbname and user):
-        # Missing mandatory fields – treat as "database disabled"
-        return None
-
-    try:
-        port_int = int(port) if port is not None else 5432
-    except ValueError:
-        port_int = 5432
-
-    return {
-        "host": host,
-        "dbname": dbname,
-        "user": user,
-        "password": password,
-        "port": port_int,
-    }
-
-
-def _ensure_predictions_table(conn) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            """
-            CREATE TABLE IF NOT EXISTS prediction_history (
-                id SERIAL PRIMARY KEY,
-                overview TEXT,
-                vote_average REAL,
-                vote_count INTEGER,
-                predicted_popularity REAL,
-                prediction_time TIMESTAMPTZ DEFAULT CURRENT_TIMESTAMP
-            );
-            """
-        )
-
-
-def _store_prediction(db_config: Optional[dict], payload: "PredictionRequest", prediction: float) -> None:
-    """Persist the latest prediction if a database is configured."""
-
-    if not db_config:
-        return
-
-    try:
-        with psycopg2.connect(**db_config) as conn:
-            _ensure_predictions_table(conn)
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    INSERT INTO prediction_history
-                    (overview, vote_average, vote_count, predicted_popularity)
-                    VALUES (%s, %s, %s, %s);
-                    """,
-                    (
-                        payload.overview,
-                        payload.vote_average,
-                        payload.vote_count,
-                        float(prediction),
-                    ),
-                )
-    except OperationalError as exc:
-        print(f" Warning: Unable to store prediction history (connection error): {exc}")
-    except Exception as exc:  # noqa: BLE001 - best effort logging, API should succeed regardless
-        print(f" Warning: Failed to store prediction history: {exc}")
-
-
 app = FastAPI(
     title="Movie Popularity Predictor API",
     description="Predicts movie popularity based on overview and vote metrics.",
     version="1.0.0"
 )
-
-
-DB_CONFIG = _load_db_config()
-
-if DB_CONFIG:
-    try:
-        with psycopg2.connect(**DB_CONFIG) as _conn:
-            _ensure_predictions_table(_conn)
-    except OperationalError as exc:
-        print(f" Warning: Unable to prepare prediction history table: {exc}")
-    except Exception as exc:  # noqa: BLE001
-        print(f" Warning: Unexpected error preparing prediction history table: {exc}")
 
 def _load_model_artifacts() -> Tuple[object, object]:
     """Load the model artefacts, training them if they do not exist."""
