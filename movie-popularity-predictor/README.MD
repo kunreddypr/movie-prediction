@@ -90,6 +90,18 @@ Docker Compose (usually included with Docker Desktop)
 Setup and Installation
 Before running the application, you must configure the environment variables.
 
+If you are working inside GitHub Codespaces or a local Python environment, install
+the application dependencies and build the model artefacts once:
+
+```
+python -m pip install -r requirements.txt
+python -m app.train_model
+```
+
+The training script downloads the necessary NLTK resources when internet access
+is available and falls back to an embedded stop-word list when it is not, so the
+workflow is deterministic even in restricted environments.
+
 Clone the repository:
 
 git clone <your-repository-url>
@@ -151,6 +163,15 @@ Streamlit Web App: http://localhost:8501
 
 Additional Notes
 
+Codespaces / Local Development without Docker
+- After installing the dependencies you can launch the API directly with
+  `uvicorn app.api:app --reload`.
+- Streamlit can be started with `streamlit run app/streamlit_app.py` (ensure the
+  API is reachable via the `API_URL` environment variable or defaults to
+  `http://127.0.0.1:8000`).
+- The FastAPI service retrains the model automatically if the pickle files are
+  missing, so a clean checkout is immediately usable.
+
 Data Volume Persistence
 - The Airflow services mount the host `./data` directory to `/opt/airflow/data` so that raw/good/processed files persist across container rebuilds and are easy to inspect.
 - Paths used by DAGs:
@@ -165,8 +186,8 @@ Configurable Environment Variables
   - `TFIDF_PATH` (default: `tfidf_vectorizer.pkl`)
   - `TEST_SIZE` (default: `0.2`)
   - `RANDOM_STATE` (default: `42`)
-  - `MAX_FEATURES` (default: `5000`)
-  - `N_ESTIMATORS` (default: `100`)
+  - `MAX_FEATURES` (default: `800`)
+  - `N_ESTIMATORS` (default: `8`)
 - API (app/api.py):
   - `MODEL_PATH` (default: `random_forest_model.pkl`)
   - `TFIDF_PATH` (default: `tfidf_vectorizer.pkl`)
@@ -179,10 +200,13 @@ Healthchecks
 API Smoke Test
 - A lightweight smoke test is available at `app/test_api_smoke.py`.
 - Run in-process (no Docker):
-  - `python -m pip install -r requirements-app.txt`
+  - `python -m pip install -r requirements.txt`
   - `python app/test_api_smoke.py`
 - Or, when the API is running:
   - `API_URL=http://127.0.0.1:8000 python app/test_api_smoke.py`
+  - The smoke test adjusts `sys.path` automatically when executed from within
+    the `app/` directory, so running it directly now works in Codespaces and
+    other non-Docker environments.
 
 Quick Airflow Commands
 - Trigger ingestion DAG (splits movies.csv into 20-row chunks and moves to good-data):
