@@ -21,9 +21,9 @@ class TrainingError(RuntimeError):
     """Raised when the training pipeline cannot complete successfully."""
 
 BASE_DIR = Path(__file__).resolve().parent
-SOURCE_DATA_PATH = Path(os.getenv('SOURCE_DATA_PATH', BASE_DIR / 'movies.csv'))
-MODEL_PATH = Path(os.getenv('MODEL_PATH', BASE_DIR / 'random_forest_model.pkl'))
-TFIDF_PATH = Path(os.getenv('TFIDF_PATH', BASE_DIR / 'tfidf_vectorizer.pkl'))
+SOURCE_DATA_PATH = os.getenv('SOURCE_DATA_PATH', str(BASE_DIR / 'movies.csv'))
+MODEL_PATH = os.getenv('MODEL_PATH', str(BASE_DIR / 'random_forest_model.pkl'))
+TFIDF_PATH = os.getenv('TFIDF_PATH', str(BASE_DIR / 'tfidf_vectorizer.pkl'))
 TEST_SIZE = float(os.getenv('TEST_SIZE', 0.2))
 RANDOM_STATE = int(os.getenv('RANDOM_STATE', 42))
 MAX_FEATURES = int(os.getenv('MAX_FEATURES', 800))
@@ -43,26 +43,14 @@ def clean_text(text: Optional[str]) -> str:
     cleaned_tokens = [lemmatizer.lemmatize(w) for w in tokens if w not in stop_words]
     return " ".join(cleaned_tokens)
 
-def _load_source_dataframe() -> pd.DataFrame:
-    candidate_paths = [SOURCE_DATA_PATH]
-    if SOURCE_DATA_PATH.suffix != '.gz':
-        candidate_paths.append(Path(f"{SOURCE_DATA_PATH}.gz"))
-
-    for candidate in candidate_paths:
-        try:
-            df = pd.read_csv(candidate)
-            print(f"Data loaded successfully from '{candidate}'. Shape: {df.shape}")
-            return df
-        except FileNotFoundError:
-            continue
-
-    searched = "', '".join(str(path) for path in candidate_paths)
-    raise TrainingError(f"Source data file not found at any of: '{searched}'.")
-
-
-def train_model() -> Tuple[Path, Path]:
+def train_model() -> Tuple[str, str]:
     print("--- Starting Model Training Process ---")
-    df = _load_source_dataframe()
+    try:
+        df = pd.read_csv(SOURCE_DATA_PATH)
+    except FileNotFoundError as exc:
+        raise TrainingError(f"Source data file not found at '{SOURCE_DATA_PATH}'.") from exc
+
+    print(f"Data loaded successfully from '{SOURCE_DATA_PATH}'. Shape: {df.shape}")
 
     df['cleaned_overview'] = df['overview'].apply(clean_text)
     df.dropna(subset=['popularity', 'vote_average', 'vote_count', 'cleaned_overview'], inplace=True)

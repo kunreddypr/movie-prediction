@@ -168,9 +168,6 @@ Codespaces / Local Development without Docker
   `http://127.0.0.1:8000`).
 - The FastAPI service retrains the model automatically if the pickle files are
   missing, so a clean checkout is immediately usable.
-- The Docker build keeps a compressed copy of `app/movies.csv` inside the
-  runtime image so artefacts can be rebuilt on demand without shipping the full
-  raw CSV.
 
 Data Volume Persistence
 - The Airflow services mount the host `./data` directory to `/opt/airflow/data` so that raw/good/processed files persist across container rebuilds and are easy to inspect.
