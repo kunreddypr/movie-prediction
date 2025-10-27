@@ -1,29 +1,43 @@
-# Use a slim, stable Python base image
-# Aligned Python version with the Airflow Dockerfile for consistency
-FROM python:3.11-slim
+# Multi-stage build that keeps the runtime layer minimal
+FROM python:3.11-slim AS base
 
-# Set the working directory inside the container
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    PIP_NO_CACHE_DIR=1 \
+    NLTK_DATA=/usr/local/share/nltk_data
+
 WORKDIR /app
 
-# Install utilities used by healthchecks and diagnostics
+FROM base AS deps
+
+COPY requirements.txt ./
+RUN python -m pip install --upgrade pip \
+    && python -m pip install --no-cache-dir -r requirements.txt \
+    && python -m nltk.downloader --dir ${NLTK_DATA} wordnet stopwords
+
+FROM deps AS artifacts
+
+COPY app /app/app
+RUN python -m app.train_model \
+    && gzip -9 -c /app/app/movies.csv > /app/app/movies.csv.gz \
+    && rm -f /app/app/movies.csv
+
+FROM base AS runtime
+
+# Runtime dependencies that are not included in python:3.11-slim but required by scikit-learn wheels
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends curl \
+    && apt-get install -y --no-install-recommends libgomp1 \
     && rm -rf /var/lib/apt/lists/*
 
-# Copy the app-specific requirements file
-COPY requirements-app.txt .
+COPY --from=deps /usr/local /usr/local
+COPY --from=artifacts /app/app /app/app
+RUN mkdir -p /app/scripts
+COPY scripts/run-appstack.sh /app/scripts/run-appstack.sh
 
-# FIX: Use 'python -m pip' to ensure the correct pip is used,
-# which resolves the ModuleNotFoundError for nltk.
-RUN python -m pip install --no-cache-dir -r requirements-app.txt \
-    && python -m nltk.downloader wordnet stopwords
+RUN chmod +x /app/scripts/run-appstack.sh
 
-# Copy the rest of the application code into the container
-COPY ./app ./app
-COPY ./scripts ./scripts
-
-# Expose the ports for the API and the webapp
 EXPOSE 8000 8501
 
-# The command to run the application will be provided by docker-compose.yml
-
+# The command is supplied by docker compose so we only provide a working directory
+WORKDIR /app/app

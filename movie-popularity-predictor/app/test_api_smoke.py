@@ -2,14 +2,20 @@
 Lightweight smoke tests for the FastAPI app.
 
 Run locally (outside Docker):
-  $ python -m pip install -r requirements-app.txt
+  $ python -m pip install -r requirements.txt
   $ python app/test_api_smoke.py
 
 Or, if the API container is running, you can switch BASE_URL below
 to the container host URL and run this as a simple client.
 """
 
+from pathlib import Path
+import sys
 from typing import Dict, Any
+
+ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 
 try:
     # Prefer in-process test to avoid network; falls back to HTTP if import fails

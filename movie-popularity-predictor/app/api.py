@@ -1,8 +1,8 @@
+from pathlib import Path
 import joblib
 import re
 import os
-import sys
-from typing import Optional
+from typing import Optional, Tuple
 
 import pandas as pd
 from fastapi import FastAPI, HTTPException
@@ -10,14 +10,20 @@ from pydantic import BaseModel
 from scipy.sparse import hstack
 
 try:
-    from nltk.stem import WordNetLemmatizer
-    from nltk.corpus import stopwords
-except ImportError:
-    print(" NLTK not found. Please ensure it's in requirements-app.txt")
-    sys.exit(1)
+    from app.nlp_utils import get_language_tools, ensure_nltk_data
+except ImportError:  # pragma: no cover - allows running as a script
+    from nlp_utils import get_language_tools, ensure_nltk_data
 
-MODEL_PATH = os.getenv('MODEL_PATH', 'random_forest_model.pkl')
-TFIDF_PATH = os.getenv('TFIDF_PATH', 'tfidf_vectorizer.pkl')
+try:
+    from app.train_model import train_model, MODEL_PATH, TFIDF_PATH, TrainingError
+except ImportError:  # pragma: no cover - allows running via python -m
+    from train_model import train_model, MODEL_PATH, TFIDF_PATH, TrainingError
+
+DEFAULT_MODEL_PATH = Path(MODEL_PATH)
+DEFAULT_TFIDF_PATH = Path(TFIDF_PATH)
+
+MODEL_PATH = Path(os.getenv('MODEL_PATH', str(DEFAULT_MODEL_PATH)))
+TFIDF_PATH = Path(os.getenv('TFIDF_PATH', str(DEFAULT_TFIDF_PATH)))
 
 app = FastAPI(
     title="Movie Popularity Predictor API",
@@ -25,25 +31,34 @@ app = FastAPI(
     version="1.0.0"
 )
 
-try:
-    model = joblib.load(MODEL_PATH)
-    tfidf_vectorizer = joblib.load(TFIDF_PATH)
-    print(" Model and TF-IDF vectorizer loaded successfully.")
-except FileNotFoundError:
-    print(f" FATAL ERROR: Model or TF-IDF file not found.")
-    print(f"Ensure '{MODEL_PATH}' and '{TFIDF_PATH}' exist after running the training script.")
-    sys.exit(1)
-except Exception as e:
-    print(f" An error occurred while loading the model files: {e}")
-    sys.exit(1)
+def _load_model_artifacts() -> Tuple[object, object]:
+    """Load the model artefacts, training them if they do not exist."""
+
+    missing = [path for path in (MODEL_PATH, TFIDF_PATH) if not path.exists()]
+    if missing:
+        print(" Model artefacts missing; triggering training run...")
+        try:
+            train_model()
+        except TrainingError as exc:
+            print(f" Training failed while creating artefacts: {exc}")
+            raise
+
+    try:
+        model_obj = joblib.load(MODEL_PATH)
+        vectorizer_obj = joblib.load(TFIDF_PATH)
+        print(" Model and TF-IDF vectorizer loaded successfully.")
+        return model_obj, vectorizer_obj
+    except FileNotFoundError as exc:
+        print(f" FATAL ERROR: Required artefact not found after training: {exc}")
+        raise
+    except Exception as exc:
+        print(f" An error occurred while loading the model files: {exc}")
+        raise
 
 
-try:
-    lemmatizer = WordNetLemmatizer()
-    stop_words = set(stopwords.words('english'))
-except Exception as e:
-    print(f"Could not load NLTK data. Ensure it is downloaded. Error: {e}")
-    sys.exit(1)
+ensure_nltk_data()
+lemmatizer, stop_words = get_language_tools()
+model, tfidf_vectorizer = _load_model_artifacts()
 
 def clean_text(text: Optional[str]) -> str:
     if not isinstance(text, str):

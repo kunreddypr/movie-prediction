@@ -109,7 +109,6 @@ services:
   # Application Model Training Service
   # A one-time task to train the ML model on startup.
   app-init:
-    profiles: ["train"]
     build:
       context: .
       dockerfile: Dockerfile.app
