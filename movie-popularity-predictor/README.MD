@@ -137,13 +137,10 @@ Run the following command from the root of the project directory. The --build fl
 
 docker-compose up --build
 
-Start only a few services (faster):
-- App only (API + Streamlit + Postgres):
-  - `docker compose up --build postgres_db api webapp`
-- With profiles (Airflow disabled by default):
-  - Airflow services are under the `airflow` profile and model training under `train`.
-  - Full stack: `docker compose --profile airflow --profile train up --build`
-  - Minimal app: `docker compose up --build postgres_db api webapp`
+Quick commands:
+- Slim app image + combined API/Streamlit runner: `docker compose -f docker-compose.min.yml up --build appstack`
+- Minimal app stack with separate API and UI: `docker compose up --build postgres_db api webapp`
+- Full environment including Airflow: `docker compose --profile airflow --profile train up --build`
 
 To stop the application:
 Press Ctrl + C in the terminal, and then run:
