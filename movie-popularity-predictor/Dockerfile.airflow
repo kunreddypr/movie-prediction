@@ -1,31 +1,28 @@
-# Use a specific, recent, and stable version of Airflow
-FROM apache/airflow:2.9.2-python3.11
+FROM apache/airflow:2.9.2-python3.11 AS base
 
-# Set the Airflow home directory
-ENV AIRFLOW_HOME=/opt/airflow
+ENV AIRFLOW_HOME=/opt/airflow \
+    NLTK_DATA=/opt/airflow/nltk_data
 
-# Switch to root user for initial setup that requires permissions
 USER root
 
-# Create directories and set ownership early
-RUN mkdir -p /opt/airflow/dags /opt/airflow/logs /opt/airflow/plugins \
+RUN mkdir -p ${AIRFLOW_HOME}/dags ${AIRFLOW_HOME}/logs ${AIRFLOW_HOME}/plugins \
     && chown -R airflow: ${AIRFLOW_HOME}
 
-# Copy the new, Airflow-specific requirements and the wait script
-# Use --chown to set the correct owner and group immediately.
-COPY --chown=airflow:airflow requirements-airflow.txt /requirements-airflow.txt
-COPY --chown=airflow:airflow scripts/wait-for-postgres.sh /opt/airflow/scripts/wait-for-postgres.sh
+COPY --chown=airflow:airflow scripts/wait-for-postgres.sh ${AIRFLOW_HOME}/scripts/wait-for-postgres.sh
+RUN chmod +x ${AIRFLOW_HOME}/scripts/wait-for-postgres.sh
 
-# Set executable permissions for the wait script
-RUN chmod +x /opt/airflow/scripts/wait-for-postgres.sh
-
-# Switch to the non-root airflow user for better security
 USER airflow
 
-# Install dependencies as the airflow user, using the new requirements file
-RUN pip install --no-cache-dir -r /requirements-airflow.txt \
-    --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.2/constraints-3.11.txt"
+COPY --chown=airflow:airflow requirements.txt /tmp/requirements.txt
+RUN pip install --no-cache-dir \
+        -r /tmp/requirements.txt \
+        apache-airflow-providers-postgres \
+        apache-airflow-providers-common-io \
+        --constraint "https://raw.githubusercontent.com/apache/airflow/constraints-2.9.2/constraints-3.11.txt" \
+    && python -m nltk.downloader --dir ${NLTK_DATA} wordnet stopwords
 
-# Copy the rest of the project files as the airflow user
-COPY --chown=airflow:airflow . /opt/airflow
-
+COPY --chown=airflow:airflow dags ${AIRFLOW_HOME}/dags
+COPY --chown=airflow:airflow app ${AIRFLOW_HOME}/app
+COPY --chown=airflow:airflow scripts ${AIRFLOW_HOME}/scripts
+COPY --chown=airflow:airflow data ${AIRFLOW_HOME}/data
+COPY --chown=airflow:airflow movies.csv ${AIRFLOW_HOME}/movies.csv
