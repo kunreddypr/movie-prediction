@@ -135,7 +135,7 @@ Once the setup is complete, you can start the entire application stack with a si
 Build and start the services:
 Run the following command from the root of the project directory. The --build flag ensures that the Docker images are built from your Dockerfiles.
 
-docker-compose up --build
+docker compose up --build
 
 Quick commands:
 - Slim app image + combined API/Streamlit runner: `docker compose -f docker-compose.min.yml up --build appstack`

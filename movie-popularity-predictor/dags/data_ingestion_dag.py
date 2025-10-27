@@ -3,14 +3,41 @@ from datetime import datetime
 import os
 import shutil
 import uuid
+from pathlib import Path
 import pandas as pd
 
 
-BASE_DATA_FOLDER = os.path.join(os.getcwd(), 'data')
-RAW_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, 'raw-data')
-GOOD_DATA_FOLDER = os.path.join(BASE_DATA_FOLDER, 'good-data')
-INGESTED_ARCHIVE_FOLDER = os.path.join(BASE_DATA_FOLDER, 'ingested-archive')
-SOURCE_CSV_PATH = os.getenv('MOVIES_SOURCE_CSV', os.path.join(BASE_DATA_FOLDER, 'movies.csv'))
+def _default_data_root() -> Path:
+    """Return the most sensible data root for both local and Airflow runs."""
+    repo_data = Path(__file__).resolve().parents[1] / "data"
+    if repo_data.exists():
+        return repo_data
+
+    airflow_home = Path(os.getenv("AIRFLOW_HOME", "/opt/airflow"))
+    return airflow_home / "data"
+
+
+DATA_ROOT = Path(os.getenv("AIRFLOW_DATA_HOME", _default_data_root()))
+RAW_DATA_FOLDER = DATA_ROOT / "raw-data"
+GOOD_DATA_FOLDER = DATA_ROOT / "good-data"
+INGESTED_ARCHIVE_FOLDER = DATA_ROOT / "ingested-archive"
+
+
+def _default_source_csv() -> Path:
+    candidate_paths = [
+        DATA_ROOT / "movies.csv",
+        DATA_ROOT / "movies.csv.gz",
+        Path(__file__).resolve().parents[1] / "movies.csv",
+        Path(__file__).resolve().parents[1] / "movies.csv.gz",
+        Path(os.getenv("AIRFLOW_HOME", "/opt/airflow")) / "movies.csv",
+    ]
+    for path in candidate_paths:
+        if path.exists():
+            return path
+    return candidate_paths[0]
+
+
+SOURCE_CSV_PATH = Path(os.getenv("MOVIES_SOURCE_CSV", str(_default_source_csv())))
 
 @dag(
     dag_id="movie_data_ingestion_pipeline",
@@ -21,18 +48,21 @@ SOURCE_CSV_PATH = os.getenv('MOVIES_SOURCE_CSV', os.path.join(BASE_DATA_FOLDER, 
 )
 def data_ingestion_dag():
     
-    os.makedirs(RAW_DATA_FOLDER, exist_ok=True)
-    os.makedirs(GOOD_DATA_FOLDER, exist_ok=True)
-    os.makedirs(INGESTED_ARCHIVE_FOLDER, exist_ok=True)
+    RAW_DATA_FOLDER.mkdir(parents=True, exist_ok=True)
+    GOOD_DATA_FOLDER.mkdir(parents=True, exist_ok=True)
+    INGESTED_ARCHIVE_FOLDER.mkdir(parents=True, exist_ok=True)
 
     @task
     def split_movies_csv(chunk_size: int = 20) -> list[str]:
         """Split the source movies.csv into multiple CSVs with chunk_size rows each in raw-data."""
-        if not os.path.exists(SOURCE_CSV_PATH):
+        if not SOURCE_CSV_PATH.exists():
             print(f"Source CSV not found at {SOURCE_CSV_PATH}. Skipping.")
             return []
         try:
-            df = pd.read_csv(SOURCE_CSV_PATH)
+            if SOURCE_CSV_PATH.suffix == ".gz":
+                df = pd.read_csv(SOURCE_CSV_PATH, compression="gzip")
+            else:
+                df = pd.read_csv(SOURCE_CSV_PATH)
         except Exception as e:
             print(f"Error reading source CSV: {e}")
             return []
@@ -48,9 +78,9 @@ def data_ingestion_dag():
             end = min(start + chunk_size, total_rows)
             chunk = df.iloc[start:end]
             fname = f"movies_chunk_{file_tag}_{start//chunk_size + 1}.csv"
-            out_path = os.path.join(RAW_DATA_FOLDER, fname)
+            out_path = RAW_DATA_FOLDER / fname
             chunk.to_csv(out_path, index=False)
-            created_files.append(out_path)
+            created_files.append(str(out_path))
         print(f"Created {len(created_files)} files in raw-data from {total_rows} rows.")
         return created_files
 
@@ -62,13 +92,14 @@ def data_ingestion_dag():
             return []
         moved = []
         for raw_file_path in raw_file_paths:
-            file_name = os.path.basename(raw_file_path)
-            good_file_path = os.path.join(GOOD_DATA_FOLDER, file_name)
-            archive_file_path = os.path.join(INGESTED_ARCHIVE_FOLDER, file_name)
-            shutil.copy(raw_file_path, good_file_path)
-            shutil.move(raw_file_path, archive_file_path)
+            raw_path = Path(raw_file_path)
+            file_name = raw_path.name
+            good_file_path = GOOD_DATA_FOLDER / file_name
+            archive_file_path = INGESTED_ARCHIVE_FOLDER / file_name
+            shutil.copy(raw_path, good_file_path)
+            shutil.move(raw_path, archive_file_path)
             print(f"Copied to good: {good_file_path} and archived: {archive_file_path}")
-            moved.append(good_file_path)
+            moved.append(str(good_file_path))
         return moved
 
 

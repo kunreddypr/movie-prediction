@@ -4,6 +4,7 @@ from airflow.decorators import dag, task
 from datetime import datetime
 import os
 import shutil
+from pathlib import Path
 import pandas as pd
 import requests
 
@@ -11,9 +12,18 @@ import requests
 from scripts.db_utils import get_db_connection
 
 
-DATA_FOLDER = "/opt/airflow/data"
-GOOD_DATA_FOLDER = os.path.join(DATA_FOLDER, 'good-data')
-PROCESSED_DATA_FOLDER = os.path.join(DATA_FOLDER, 'processed-data')
+def _default_data_root() -> Path:
+    repo_data = Path(__file__).resolve().parents[1] / "data"
+    if repo_data.exists():
+        return repo_data
+
+    airflow_home = Path(os.getenv("AIRFLOW_HOME", "/opt/airflow"))
+    return airflow_home / "data"
+
+
+DATA_ROOT = Path(os.getenv("AIRFLOW_DATA_HOME", _default_data_root()))
+GOOD_DATA_FOLDER = DATA_ROOT / "good-data"
+PROCESSED_DATA_FOLDER = DATA_ROOT / "processed-data"
 
 
 FASTAPI_URL = "http://api:8000/predict"
@@ -27,21 +37,20 @@ FASTAPI_URL = "http://api:8000/predict"
 )
 def prediction_dag():
     
-    os.makedirs(GOOD_DATA_FOLDER, exist_ok=True)
-    os.makedirs(PROCESSED_DATA_FOLDER, exist_ok=True)
+    GOOD_DATA_FOLDER.mkdir(parents=True, exist_ok=True)
+    PROCESSED_DATA_FOLDER.mkdir(parents=True, exist_ok=True)
 
     @task
     def check_for_new_data() -> list[str]:
         """Checks for new files in good-data. Returns list of file paths."""
-        new_files = [f for f in os.listdir(GOOD_DATA_FOLDER) if f.endswith('.csv')]
-        
+        new_files = [path for path in GOOD_DATA_FOLDER.glob('*.csv')]
+
         if not new_files:
             print("No new files found in good-data. Skipping downstream tasks.")
-            return [] 
+            return []
 
-        file_paths = [os.path.join(GOOD_DATA_FOLDER, f) for f in new_files]
-        print(f"Found {len(file_paths)} new files for prediction.")
-        return file_paths
+        print(f"Found {len(new_files)} new files for prediction.")
+        return [str(path) for path in new_files]
 
     @task
     def make_predictions(file_paths: list):
@@ -55,11 +64,12 @@ def prediction_dag():
         total_predictions = 0
 
         for file_path in file_paths:
-            file_name = os.path.basename(file_path)
+            file_path_obj = Path(file_path)
+            file_name = file_path_obj.name
             print(f"Processing file: {file_name}")
             
             try:
-                df = pd.read_csv(file_path)
+                df = pd.read_csv(file_path_obj)
                 for index, row in df.iterrows():
                     payload = {
                         "overview": row.get('overview', ''),
@@ -87,7 +97,7 @@ def prediction_dag():
                     total_predictions += 1
                 
 
-                shutil.move(file_path, os.path.join(PROCESSED_DATA_FOLDER, file_name))
+                shutil.move(file_path_obj, PROCESSED_DATA_FOLDER / file_name)
                 print(f"Successfully processed and archived file: {file_name}")
 
             except requests.exceptions.RequestException as e:

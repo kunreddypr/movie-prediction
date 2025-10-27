@@ -8,6 +8,8 @@ import pandas as pd
 from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from scipy.sparse import hstack
+import psycopg2
+from psycopg2 import OperationalError
 
 try:
     from app.nlp_utils import get_language_tools, ensure_nltk_data
@@ -98,7 +100,9 @@ def predict_popularity(request: PredictionRequest):
         
 
         prediction = model.predict(combined_features)[0]
-        
+
+        _store_prediction(DB_CONFIG, request, prediction)
+
         return PredictionResponse(predicted_popularity=prediction)
         
     except Exception as e:
