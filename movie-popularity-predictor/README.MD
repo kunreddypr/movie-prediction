@@ -169,6 +169,42 @@ Codespaces / Local Development without Docker
 - The FastAPI service retrains the model automatically if the pickle files are
   missing, so a clean checkout is immediately usable.
 
+GitHub Codespaces Quickstart
+- Create a Codespace with at least 4 vCPUs so Docker has enough resources.
+- In the Codespace terminal, switch to the project directory and export an
+  Airflow UID to avoid permission issues:
+  ```bash
+  cd movie-prediction/movie-popularity-predictor
+  export AIRFLOW_UID=50000
+  ```
+- Create the log and plugin folders with the right ownership:
+  ```bash
+  mkdir -p logs plugins dags
+  sudo chown -R "${AIRFLOW_UID}:${AIRFLOW_UID}" logs plugins dags
+  ```
+- Build and start the complete stack (PostgreSQL, Airflow, API, Streamlit):
+  ```bash
+  docker compose --profile airflow --profile train up --build
+  ```
+- Once the containers are healthy you can trigger the ingestion DAG from the
+  Airflow UI (http://127.0.0.1:8080) or from the terminal:
+  ```bash
+  docker compose exec airflow-webserver airflow dags trigger data_ingestion
+  ```
+- Trigger the prediction DAG in the same way when a single ready file should be
+  scored:
+  ```bash
+  docker compose exec airflow-webserver airflow dags trigger prediction
+  ```
+- To inspect stored predictions in PostgreSQL from Codespaces:
+  ```bash
+  docker compose exec postgres_db psql "$POSTGRES_DB" "$POSTGRES_USER"
+  ```
+- When finished, shut everything down and clean the containers:
+  ```bash
+  docker compose down
+  ```
+
 Data Volume Persistence
 - The Airflow services mount the host `./data` directory to `/opt/airflow/data` so that raw/good/processed files persist across container rebuilds and are easy to inspect.
 - Paths used by DAGs:

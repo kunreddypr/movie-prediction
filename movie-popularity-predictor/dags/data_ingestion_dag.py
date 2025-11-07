@@ -6,6 +6,8 @@ import uuid
 from pathlib import Path
 import pandas as pd
 
+from scripts.simple_xlsx import dataframe_to_xlsx
+
 
 def _default_data_root() -> Path:
     """Return the most sensible data root for both local and Airflow runs."""
@@ -54,7 +56,13 @@ def data_ingestion_dag():
 
     @task
     def split_movies_csv(chunk_size: int = 20) -> list[str]:
-        """Split the source movies.csv into multiple CSVs with chunk_size rows each in raw-data."""
+        """Split the source movies.csv into Excel files with ``chunk_size`` rows each.
+
+        The ingestion DAG now produces ``.xlsx`` files so that the review step in the
+        process can work with Excel spreadsheets directly.  Each generated file is
+        written to the raw-data folder and contains at most ``chunk_size`` rows from
+        the source dataset.
+        """
         if not SOURCE_CSV_PATH.exists():
             print(f"Source CSV not found at {SOURCE_CSV_PATH}. Skipping.")
             return []
@@ -77,9 +85,9 @@ def data_ingestion_dag():
         for start in range(0, total_rows, chunk_size):
             end = min(start + chunk_size, total_rows)
             chunk = df.iloc[start:end]
-            fname = f"movies_chunk_{file_tag}_{start//chunk_size + 1}.csv"
+            fname = f"movies_chunk_{file_tag}_{start//chunk_size + 1}.xlsx"
             out_path = RAW_DATA_FOLDER / fname
-            chunk.to_csv(out_path, index=False)
+            dataframe_to_xlsx(chunk, out_path)
             created_files.append(str(out_path))
         print(f"Created {len(created_files)} files in raw-data from {total_rows} rows.")
         return created_files

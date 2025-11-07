@@ -27,6 +27,91 @@ DEFAULT_TFIDF_PATH = Path(TFIDF_PATH)
 MODEL_PATH = Path(os.getenv('MODEL_PATH', str(DEFAULT_MODEL_PATH)))
 TFIDF_PATH = Path(os.getenv('TFIDF_PATH', str(DEFAULT_TFIDF_PATH)))
 
+
+def _db_env(var: str, default: str) -> str:
+    """Return an environment variable prioritising PREDICTIONS_* over POSTGRES_*."""
+
+    predictions_key = f"PREDICTIONS_{var}"
+    postgres_key = f"POSTGRES_{var}"
+    return os.getenv(predictions_key, os.getenv(postgres_key, default))
+
+
+DB_CONFIG = {
+    "host": _db_env("HOST", "postgres_db"),
+    "port": int(_db_env("PORT", "5432")),
+    "dbname": _db_env("DB", "predictions"),
+    "user": _db_env("USER", "airflow"),
+    "password": _db_env("PASSWORD", "airflow"),
+}
+
+_TABLE_ENSURED = False
+
+
+def _get_db_connection(config: dict) -> psycopg2.extensions.connection:
+    return psycopg2.connect(
+        host=config["host"],
+        port=config["port"],
+        dbname=config["dbname"],
+        user=config["user"],
+        password=config["password"],
+    )
+
+
+def _ensure_prediction_table(config: dict) -> None:
+    global _TABLE_ENSURED
+    if _TABLE_ENSURED:
+        return
+
+    try:
+        with _get_db_connection(config) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS prediction_history (
+                        id SERIAL PRIMARY KEY,
+                        overview TEXT,
+                        vote_average REAL,
+                        vote_count INTEGER,
+                        predicted_popularity REAL,
+                        prediction_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+                    );
+                    """
+                )
+                conn.commit()
+        _TABLE_ENSURED = True
+    except OperationalError as exc:
+        # Surface a clearer error while keeping the original exception context.
+        raise RuntimeError(
+            "Could not connect to the PostgreSQL database using the configured credentials."
+        ) from exc
+
+
+def _store_prediction(config: dict, request: "PredictionRequest", prediction: float) -> None:
+    """Persist a single prediction to PostgreSQL."""
+
+    _ensure_prediction_table(config)
+    try:
+        with _get_db_connection(config) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    INSERT INTO prediction_history
+                    (overview, vote_average, vote_count, predicted_popularity)
+                    VALUES (%s, %s, %s, %s);
+                    """,
+                    (
+                        request.overview,
+                        float(request.vote_average),
+                        int(request.vote_count),
+                        float(prediction),
+                    ),
+                )
+            conn.commit()
+    except OperationalError as exc:
+        raise RuntimeError("Failed to store prediction because the database connection could not be established.") from exc
+    except Exception as exc:  # pragma: no cover - defensive logging for unexpected DB errors
+        raise RuntimeError(f"Failed to store prediction in the database: {exc}")
+
 app = FastAPI(
     title="Movie Popularity Predictor API",
     description="Predicts movie popularity based on overview and vote metrics.",
