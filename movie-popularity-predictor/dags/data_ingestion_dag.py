@@ -54,7 +54,13 @@ def data_ingestion_dag():
 
     @task
     def split_movies_csv(chunk_size: int = 20) -> list[str]:
-        """Split the source movies.csv into multiple CSVs with chunk_size rows each in raw-data."""
+        """Split the source movies.csv into Excel files with ``chunk_size`` rows each.
+
+        The ingestion DAG now produces ``.xlsx`` files so that the review step in the
+        process can work with Excel spreadsheets directly.  Each generated file is
+        written to the raw-data folder and contains at most ``chunk_size`` rows from
+        the source dataset.
+        """
         if not SOURCE_CSV_PATH.exists():
             print(f"Source CSV not found at {SOURCE_CSV_PATH}. Skipping.")
             return []
@@ -77,9 +83,15 @@ def data_ingestion_dag():
         for start in range(0, total_rows, chunk_size):
             end = min(start + chunk_size, total_rows)
             chunk = df.iloc[start:end]
-            fname = f"movies_chunk_{file_tag}_{start//chunk_size + 1}.csv"
+            fname = f"movies_chunk_{file_tag}_{start//chunk_size + 1}.xlsx"
             out_path = RAW_DATA_FOLDER / fname
-            chunk.to_csv(out_path, index=False)
+            try:
+                chunk.to_excel(out_path, index=False)
+            except ValueError as exc:
+                # pandas raises ValueError when the optional Excel dependency is missing.
+                raise RuntimeError(
+                    "Failed to write Excel file. Install the 'openpyxl' dependency in the Airflow environment."
+                ) from exc
             created_files.append(str(out_path))
         print(f"Created {len(created_files)} files in raw-data from {total_rows} rows.")
         return created_files

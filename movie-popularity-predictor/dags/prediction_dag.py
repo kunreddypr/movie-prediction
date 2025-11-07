@@ -5,6 +5,7 @@ from datetime import datetime
 import os
 import shutil
 from pathlib import Path
+from typing import List
 import pandas as pd
 import requests
 
@@ -42,15 +43,24 @@ def prediction_dag():
 
     @task
     def check_for_new_data() -> list[str]:
-        """Checks for new files in good-data. Returns list of file paths."""
-        new_files = [path for path in GOOD_DATA_FOLDER.glob('*.csv')]
+        """Checks for new files in good-data and returns only the next file to process."""
 
-        if not new_files:
+        patterns = ('*.csv', '*.xlsx')
+        discovered: List[Path] = []
+        for pattern in patterns:
+            discovered.extend(GOOD_DATA_FOLDER.glob(pattern))
+
+        if not discovered:
             print("No new files found in good-data. Skipping downstream tasks.")
             return []
 
-        print(f"Found {len(new_files)} new files for prediction.")
-        return [str(path) for path in new_files]
+        # Process files deterministically by modification time, then name.
+        discovered.sort(key=lambda p: (p.stat().st_mtime, p.name))
+        next_file = discovered[0]
+        print(
+            f"Selected {next_file.name} for processing. {len(discovered) - 1} other files remain in the queue."
+        )
+        return [str(next_file)]
 
     @task
     def make_predictions(file_paths: list):
@@ -69,7 +79,10 @@ def prediction_dag():
             print(f"Processing file: {file_name}")
             
             try:
-                df = pd.read_csv(file_path_obj)
+                if file_path_obj.suffix.lower() == '.xlsx':
+                    df = pd.read_excel(file_path_obj)
+                else:
+                    df = pd.read_csv(file_path_obj)
                 for index, row in df.iterrows():
                     payload = {
                         "overview": row.get('overview', ''),
