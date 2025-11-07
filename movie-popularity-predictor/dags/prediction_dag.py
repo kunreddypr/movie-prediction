@@ -11,6 +11,7 @@ import requests
 
 
 from scripts.db_utils import get_db_connection
+from scripts.simple_xlsx import read_xlsx
 
 
 def _default_data_root() -> Path:

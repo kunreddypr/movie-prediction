@@ -6,6 +6,8 @@ import uuid
 from pathlib import Path
 import pandas as pd
 
+from scripts.simple_xlsx import dataframe_to_xlsx
+
 
 def _default_data_root() -> Path:
     """Return the most sensible data root for both local and Airflow runs."""
