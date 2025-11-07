@@ -81,7 +81,7 @@ def prediction_dag():
             
             try:
                 if file_path_obj.suffix.lower() == '.xlsx':
-                    df = read_xlsx(file_path_obj)
+                    df = pd.read_excel(file_path_obj)
                 else:
                     df = pd.read_csv(file_path_obj)
                 for index, row in df.iterrows():

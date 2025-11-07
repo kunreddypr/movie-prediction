@@ -87,7 +87,13 @@ def data_ingestion_dag():
             chunk = df.iloc[start:end]
             fname = f"movies_chunk_{file_tag}_{start//chunk_size + 1}.xlsx"
             out_path = RAW_DATA_FOLDER / fname
-            dataframe_to_xlsx(chunk, out_path)
+            try:
+                chunk.to_excel(out_path, index=False)
+            except ValueError as exc:
+                # pandas raises ValueError when the optional Excel dependency is missing.
+                raise RuntimeError(
+                    "Failed to write Excel file. Install the 'openpyxl' dependency in the Airflow environment."
+                ) from exc
             created_files.append(str(out_path))
         print(f"Created {len(created_files)} files in raw-data from {total_rows} rows.")
         return created_files
