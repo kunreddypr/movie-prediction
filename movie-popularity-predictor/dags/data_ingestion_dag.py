@@ -4,9 +4,15 @@ from airflow.decorators import dag, task
 from datetime import datetime
 import os
 import shutil
+import sys
 import uuid
 from pathlib import Path
 import pandas as pd
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.simple_xlsx import dataframe_to_xlsx
 
