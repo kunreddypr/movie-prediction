@@ -158,6 +158,11 @@ FastAPI (API Docs): http://localhost:8000/docs
 
 Streamlit Web App: http://localhost:8501
 
+Grafana Monitoring Dashboards: http://localhost:3000 (default login admin / admin)
+
+- **Ingested Data Quality Monitoring** – tracks invalid samples, missing required fields and ingestion issue categories in real time.
+- **Model Drift and Prediction Health** – monitors serving drift against the training baselines and highlights anomalous prediction behaviour.
+
 Additional Notes
 
 Codespaces / Local Development without Docker
