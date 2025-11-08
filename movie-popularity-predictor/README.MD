@@ -273,4 +273,4 @@ Notes:
   - `docker compose -f docker-compose.min.yml exec appstack python /app/scripts/check_predictions_db.py`
 
 --command to create airflow user while running in the docker 
-docker exec -it airflow-webserver-1 airflow users create --username admin --firstname kunreddy --lastname pramod --role Admin --email reddypramod162@gmail.com --password admin
+docker exec -it movie-popularity-predictor-airflow-scheduler-1 airflow users create --username admin --firstname kunreddy --lastname pramod --role Admin --email reddypramod162@gmail.com --password admin
