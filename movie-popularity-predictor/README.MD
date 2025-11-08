@@ -271,3 +271,6 @@ Notes:
 - The minimal stack still uses Postgres and will initialize a `predictions` database via `scripts/db_init` on first run.
 - To verify the DB from the minimal stack:
   - `docker compose -f docker-compose.min.yml exec appstack python /app/scripts/check_predictions_db.py`
+
+--command to create airflow user while running in the docker 
+docker exec -it airflow-webserver-1 airflow users create --username admin --firstname kunreddy --lastname pramod --role Admin --email reddypramod162@gmail.com --password admin
