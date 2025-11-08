@@ -1,4 +1,6 @@
 import os
+import sys
+from pathlib import Path
 import psycopg2
 
 
@@ -13,6 +15,13 @@ def connect(dbname: str):
     user = env("PREDICTIONS_USER", env("POSTGRES_USER", "airflow"))
     password = env("PREDICTIONS_PASSWORD", env("POSTGRES_PASSWORD", "airflow"))
     return psycopg2.connect(host=host, port=port, dbname=dbname, user=user, password=password)
+
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.db_utils import ensure_prediction_schema
 
 
 def ensure_db_and_table():
@@ -32,21 +41,8 @@ def ensure_db_and_table():
 
     # 2) Ensure table exists
     with connect(predictions_db) as conn:
-        with conn.cursor() as cur:
-            cur.execute(
-                """
-                CREATE TABLE IF NOT EXISTS prediction_history (
-                    id SERIAL PRIMARY KEY,
-                    overview TEXT,
-                    vote_average REAL,
-                    vote_count INTEGER,
-                    predicted_popularity REAL,
-                    prediction_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                );
-                """
-            )
-            conn.commit()
-            print("Ensured table 'prediction_history' exists.")
+        ensure_prediction_schema(conn)
+        print("Ensured monitoring schema exists in predictions database.")
 
 
 if __name__ == "__main__":

@@ -1,0 +1,424 @@
+{
+  "annotations": {
+    "list": [
+      {
+        "builtIn": 1,
+        "datasource": {
+          "type": "grafana",
+          "uid": "-- Grafana --"
+        },
+        "enable": true,
+        "hide": true,
+        "iconColor": "rgba(0, 211, 255, 1)",
+        "name": "Annotations & Alerts",
+        "type": "dashboard"
+      }
+    ]
+  },
+  "description": "Operational view of data quality issues detected during ingestion runs.",
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 0,
+  "id": null,
+  "links": [],
+  "liveNow": false,
+  "panels": [
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres_mlops"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": [
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Valid %"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "green",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          },
+          {
+            "matcher": {
+              "id": "byName",
+              "options": "Invalid %"
+            },
+            "properties": [
+              {
+                "id": "color",
+                "value": {
+                  "fixedColor": "red",
+                  "mode": "fixed"
+                }
+              }
+            ]
+          }
+        ]
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
+      "id": 1,
+      "options": {
+        "legend": {
+          "calcs": [],
+          "displayMode": "table",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "single"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres_mlops"
+          },
+          "format": "time_series",
+          "group": [],
+          "metricColumn": "",
+          "rawQuery": true,
+          "rawSql": "SELECT ingestion_time AS time, 'Invalid %' AS metric, CASE WHEN total_rows = 0 THEN 0 ELSE ROUND(invalid_rows::numeric / total_rows * 100, 2) END AS value FROM ingestion_events WHERE $__timeFilter(ingestion_time) UNION ALL SELECT ingestion_time AS time, 'Valid %' AS metric, CASE WHEN total_rows = 0 THEN 0 ELSE ROUND(valid_rows::numeric / total_rows * 100, 2) END AS value FROM ingestion_events WHERE $__timeFilter(ingestion_time) ORDER BY time",
+          "refId": "A",
+          "select": [
+            [
+              {
+                "params": [
+                  "value"
+                ],
+                "type": "column"
+              }
+            ]
+          ],
+          "timeColumn": "time",
+          "where": []
+        }
+      ],
+      "title": "Valid vs Invalid Samples (%)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres_mlops"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 10
+              },
+              {
+                "color": "red",
+                "value": 25
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 10,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
+      "id": 2,
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "orientation": "auto",
+        "showValue": "always",
+        "stacked": false,
+        "tooltip": {
+          "mode": "multi"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres_mlops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT issues.time, issues.issue_type AS metric, issues.issue_count AS value FROM ( SELECT ingestion_time AS time, 'Missing overview' AS issue_type, missing_overview_count AS issue_count FROM ingestion_events UNION ALL SELECT ingestion_time AS time, 'Missing vote_average', missing_vote_average_count FROM ingestion_events UNION ALL SELECT ingestion_time AS time, 'Missing vote_count', missing_vote_count FROM ingestion_events UNION ALL SELECT ingestion_time AS time, 'Negative vote_count', negative_vote_count FROM ingestion_events UNION ALL SELECT ingestion_time AS time, 'Zero vote_average', zero_vote_average_count FROM ingestion_events UNION ALL SELECT ingestion_time AS time, 'Duplicate ids', duplicate_id_count FROM ingestion_events ) AS issues WHERE $__timeFilter(time) ORDER BY time",
+          "refId": "A"
+        }
+      ],
+      "title": "Detected Data Problems by Category",
+      "type": "barchart"
+    },
+    {
+      "alert": {
+        "alertRuleTags": {},
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [
+                1
+              ],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "A",
+                "5m",
+                "now"
+              ]
+            },
+            "reducer": {
+              "params": [],
+              "type": "max"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "for": "0m",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "Files missing required features",
+        "noDataState": "no_data",
+        "notifications": []
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres_mlops"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
+            ]
+          }
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 0,
+        "y": 10
+      },
+      "id": 3,
+      "options": {
+        "colorMode": "background",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres_mlops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT now() AS time, COALESCE(COUNT(*),0) AS missing_files FROM ingestion_events WHERE ingestion_time >= now() - interval '1 hour' AND missing_required_feature_count > 0",
+          "refId": "A"
+        }
+      ],
+      "title": "Files Missing Required Columns (1h)",
+      "type": "stat"
+    },
+    {
+      "alert": {
+        "alertRuleTags": {},
+        "conditions": [
+          {
+            "evaluator": {
+              "params": [
+                30
+              ],
+              "type": "gt"
+            },
+            "operator": {
+              "type": "and"
+            },
+            "query": {
+              "params": [
+                "A",
+                "5m",
+                "now"
+              ]
+            },
+            "reducer": {
+              "params": [],
+              "type": "avg"
+            },
+            "type": "query"
+          }
+        ],
+        "executionErrorState": "alerting",
+        "for": "0m",
+        "frequency": "1m",
+        "handler": 1,
+        "name": "High invalid ratio (10m)",
+        "noDataState": "no_data",
+        "notifications": []
+      },
+      "datasource": {
+        "type": "postgres",
+        "uid": "postgres_mlops"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "percentage",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 15
+              },
+              {
+                "color": "red",
+                "value": 30
+              }
+            ]
+          },
+          "unit": "percent"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 9,
+        "w": 8,
+        "x": 8,
+        "y": 10
+      },
+      "id": 4,
+      "options": {
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showThresholdLabels": true,
+        "showThresholdMarkers": true
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "postgres",
+            "uid": "postgres_mlops"
+          },
+          "format": "table",
+          "rawQuery": true,
+          "rawSql": "SELECT now() AS time, CASE WHEN SUM(total_rows) = 0 THEN 0 ELSE ROUND(SUM(invalid_rows)::numeric / SUM(total_rows) * 100, 2) END AS invalid_pct FROM ingestion_events WHERE ingestion_time >= now() - interval '10 minutes'",
+          "refId": "A"
+        }
+      ],
+      "title": "Invalid Records (Last 10 min)",
+      "type": "gauge"
+    }
+  ],
+  "refresh": "10s",
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": [
+    "data-quality",
+    "operations"
+  ],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
+  "timepicker": {},
+  "timezone": "",
+  "title": "Ingested Data Quality Monitoring",
+  "uid": "ingestion-quality",
+  "version": 1,
+  "weekStart": ""
+}

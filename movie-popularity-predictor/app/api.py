@@ -2,6 +2,7 @@ from pathlib import Path
 import joblib
 import re
 import os
+import sys
 from typing import Optional, Tuple
 
 import pandas as pd
@@ -20,6 +21,12 @@ try:
     from app.train_model import train_model, MODEL_PATH, TFIDF_PATH, TrainingError
 except ImportError:  # pragma: no cover - allows running via python -m
     from train_model import train_model, MODEL_PATH, TFIDF_PATH, TrainingError
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.db_utils import ensure_prediction_schema
 
 DEFAULT_MODEL_PATH = Path(MODEL_PATH)
 DEFAULT_TFIDF_PATH = Path(TFIDF_PATH)
@@ -63,21 +70,7 @@ def _ensure_prediction_table(config: dict) -> bool:
         return True
 
     try:
-        with _get_db_connection(config) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    """
-                    CREATE TABLE IF NOT EXISTS prediction_history (
-                        id SERIAL PRIMARY KEY,
-                        overview TEXT,
-                        vote_average REAL,
-                        vote_count INTEGER,
-                        predicted_popularity REAL,
-                        prediction_time TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
-                    );
-                    """
-                )
-                conn.commit()
+        ensure_prediction_schema()
         _TABLE_ENSURED = True
         return True
     except OperationalError:
@@ -108,14 +101,16 @@ def _store_prediction(config: dict, request: "PredictionRequest", prediction: fl
                 cur.execute(
                     """
                     INSERT INTO prediction_history
-                    (overview, vote_average, vote_count, predicted_popularity)
-                    VALUES (%s, %s, %s, %s);
+                    (overview, vote_average, vote_count, predicted_popularity, source_file, ingestion_event_id)
+                    VALUES (%s, %s, %s, %s, %s, %s);
                     """,
                     (
                         request.overview,
                         float(request.vote_average),
                         int(request.vote_count),
                         float(prediction),
+                        request.source_file,
+                        request.ingestion_event_id,
                     ),
                 )
             conn.commit()
@@ -175,6 +170,8 @@ class PredictionRequest(BaseModel):
     overview: str
     vote_average: float
     vote_count: int
+    source_file: Optional[str] = None
+    ingestion_event_id: Optional[int] = None
 
 class PredictionResponse(BaseModel):
     predicted_popularity: float
