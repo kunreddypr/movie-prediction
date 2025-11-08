@@ -1,0 +1,18 @@
+apiVersion: 1
+
+datasources:
+  - name: MovieOps Postgres
+    uid: postgres_mlops
+    type: postgres
+    access: proxy
+    url: postgres_db:5432
+    user: airflow
+    secureJsonData:
+      password: airflow
+    jsonData:
+      database: predictions
+      sslmode: disable
+      postgresVersion: 1400
+      timescaledb: false
+    isDefault: true
+    editable: true

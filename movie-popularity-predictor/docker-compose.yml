@@ -186,6 +186,23 @@ services:
       postgres_db:
         condition: service_started
 
+  grafana:
+    image: grafana/grafana:10.4.1
+    restart: always
+    environment:
+      GF_SECURITY_ADMIN_USER: admin
+      GF_SECURITY_ADMIN_PASSWORD: admin
+      GF_USERS_AUTO_ASSIGN_ORG_ROLE: Admin
+    volumes:
+      - ./grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+      - ./grafana/provisioning/alerting:/etc/grafana/provisioning/alerting
+      - ./grafana/dashboards:/var/lib/grafana/dashboards
+    ports:
+      - "3000:3000"
+    depends_on:
+      - postgres_db
+
 # Named volumes for persistent data
 volumes:
   postgres_data:

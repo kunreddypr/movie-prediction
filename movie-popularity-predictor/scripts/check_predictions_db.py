@@ -1,6 +1,10 @@
 import os
 import sys
 import argparse
+import argparse
+import os
+import sys
+
 import psycopg2
 
 
@@ -46,16 +50,23 @@ def main() -> int:
             with connect(args.db, args.host, args.port, args.user, args.password) as conn:
                 with conn.cursor() as cur:
                     # Check table existence
-                    cur.execute("SELECT to_regclass('public.prediction_history')")
-                    tbl = cur.fetchone()[0]
-                    if not tbl:
-                        print("Table 'prediction_history': MISSING")
-                        ok = False
-                    else:
-                        print("Table 'prediction_history': FOUND")
-                        cur.execute("SELECT COUNT(*) FROM prediction_history")
+                    monitored_tables = [
+                        ("prediction_history", "SELECT COUNT(*) FROM prediction_history"),
+                        ("ingestion_events", "SELECT COUNT(*) FROM ingestion_events"),
+                        ("prediction_runs", "SELECT COUNT(*) FROM prediction_runs"),
+                        ("model_feature_baselines", "SELECT COUNT(*) FROM model_feature_baselines"),
+                    ]
+                    for table_name, count_query in monitored_tables:
+                        cur.execute("SELECT to_regclass(%s)", (f"public.{table_name}",))
+                        tbl = cur.fetchone()[0]
+                        if not tbl:
+                            print(f"Table '{table_name}': MISSING")
+                            ok = False
+                            continue
+                        print(f"Table '{table_name}': FOUND")
+                        cur.execute(count_query)
                         count = cur.fetchone()[0]
-                        print(f"Rows in prediction_history: {count}")
+                        print(f"Rows in {table_name}: {count}")
         except Exception as e:
             print(f"Error checking table in DB '{args.db}': {e}")
             return 3

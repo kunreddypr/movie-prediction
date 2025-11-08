@@ -14,6 +14,7 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
+from scripts.db_utils import ensure_prediction_schema, get_db_connection
 from scripts.simple_xlsx import dataframe_to_xlsx
 
 
@@ -124,9 +125,136 @@ def data_ingestion_dag():
             moved.append(str(good_file_path))
         return moved
 
+    @task
+    def record_data_quality_metrics(processed_files: list[str]):
+        """Compute and persist data-quality metrics for each ingested file."""
+
+        if not processed_files:
+            print("No processed files available for quality metrics.")
+            return []
+
+        ensure_prediction_schema()
+
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                for file_path in processed_files:
+                    file_path_obj = Path(file_path)
+                    start_time = datetime.now()
+
+                    if not file_path_obj.exists():
+                        print(f"File {file_path_obj} no longer exists. Skipping metrics computation.")
+                        continue
+
+                    if file_path_obj.suffix.lower() == ".xlsx":
+                        df = pd.read_excel(file_path_obj)
+                    else:
+                        df = pd.read_csv(file_path_obj)
+
+                    total_rows = len(df)
+
+                    required_columns = {"overview", "vote_average", "vote_count"}
+                    missing_required_columns = required_columns.difference(df.columns)
+                    missing_required_feature_count = len(missing_required_columns)
+
+                    overview_series = df.get("overview")
+                    if overview_series is not None:
+                        missing_overview = overview_series.fillna("").astype(str).str.strip().eq("").sum()
+                    else:
+                        missing_overview = total_rows
+
+                    vote_average_series = df.get("vote_average")
+                    numeric_vote_average = None
+                    if vote_average_series is not None:
+                        numeric_vote_average = pd.to_numeric(vote_average_series, errors="coerce")
+                        missing_vote_average = numeric_vote_average.isna().sum()
+                        zero_vote_average = (numeric_vote_average.fillna(0) == 0).sum()
+                    else:
+                        missing_vote_average = total_rows
+                        zero_vote_average = total_rows
+
+                    vote_count_series = df.get("vote_count")
+                    numeric_vote_count = None
+                    if vote_count_series is not None:
+                        numeric_vote_count = pd.to_numeric(vote_count_series, errors="coerce")
+                        missing_vote_count = numeric_vote_count.isna().sum()
+                        negative_vote_count = (numeric_vote_count.fillna(0) < 0).sum()
+                    else:
+                        missing_vote_count = total_rows
+                        negative_vote_count = total_rows
+
+                    if "id" in df.columns:
+                        duplicate_id_count = df.duplicated(subset=["id"], keep=False).sum()
+                    else:
+                        duplicate_id_count = 0
+
+                    invalid_mask = pd.Series(False, index=df.index)
+                    if overview_series is not None:
+                        invalid_mask |= overview_series.fillna("").astype(str).str.strip().eq("")
+                    if vote_average_series is not None and numeric_vote_average is not None:
+                        invalid_mask |= numeric_vote_average.isna()
+                    else:
+                        invalid_mask |= True
+                    if vote_count_series is not None and numeric_vote_count is not None:
+                        invalid_mask |= numeric_vote_count.isna()
+                        invalid_mask |= numeric_vote_count.fillna(0) < 0
+                    else:
+                        invalid_mask |= True
+
+                    invalid_rows = int(invalid_mask.sum())
+                    valid_rows = max(total_rows - invalid_rows, 0)
+
+                    processing_seconds = (datetime.now() - start_time).total_seconds()
+
+                    cur.execute(
+                        """
+                        INSERT INTO ingestion_events (
+                            file_name,
+                            ingestion_time,
+                            total_rows,
+                            valid_rows,
+                            invalid_rows,
+                            missing_required_feature_count,
+                            missing_overview_count,
+                            missing_vote_average_count,
+                            missing_vote_count,
+                            negative_vote_count,
+                            zero_vote_average_count,
+                            duplicate_id_count,
+                            processing_seconds
+                        ) VALUES (%s, CURRENT_TIMESTAMP, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+                        RETURNING id
+                        """,
+                        (
+                            file_path_obj.name,
+                            total_rows,
+                            valid_rows,
+                            invalid_rows,
+                            missing_required_feature_count,
+                            int(missing_overview),
+                            int(missing_vote_average),
+                            int(missing_vote_count),
+                            int(negative_vote_count),
+                            int(zero_vote_average),
+                            int(duplicate_id_count),
+                            processing_seconds,
+                        ),
+                    )
+                    event_id = cur.fetchone()[0]
+                    print(
+                        "Recorded data quality metrics for %s (event id=%s, invalid_rows=%s)."
+                        % (file_path_obj.name, event_id, invalid_rows)
+                    )
+            conn.commit()
+        finally:
+            conn.close()
+
+        return processed_files
+
 
     created_files = split_movies_csv()
-    move_files_to_good(raw_file_paths=created_files)
+    moved_files = move_files_to_good(raw_file_paths=created_files)
+    record_data_quality_metrics(processed_files=moved_files)
 
 
 data_ingestion_dag()

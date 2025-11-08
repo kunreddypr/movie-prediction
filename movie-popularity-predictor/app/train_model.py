@@ -1,4 +1,5 @@
 from pathlib import Path
+import sys
 import pandas as pd
 import joblib
 import re
@@ -15,6 +16,12 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.ensemble import RandomForestRegressor
 from sklearn.metrics import mean_squared_error
 from scipy.sparse import hstack
+
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from scripts.db_utils import store_feature_baselines
 
 
 class TrainingError(RuntimeError):
@@ -55,6 +62,32 @@ def train_model() -> Tuple[str, str]:
     df['cleaned_overview'] = df['overview'].apply(clean_text)
     df.dropna(subset=['popularity', 'vote_average', 'vote_count', 'cleaned_overview'], inplace=True)
     print(f"Data cleaned. Shape after dropping NAs: {df.shape}")
+
+    try:
+        baseline_payload = {
+            "vote_average": {
+                "mean": float(df['vote_average'].mean()),
+                "std": float(df['vote_average'].std(ddof=0)) if not df['vote_average'].empty else 0.0,
+                "p95": float(df['vote_average'].quantile(0.95)) if not df['vote_average'].empty else 0.0,
+                "count": int(df['vote_average'].count()),
+            },
+            "vote_count": {
+                "mean": float(df['vote_count'].mean()),
+                "std": float(df['vote_count'].std(ddof=0)) if not df['vote_count'].empty else 0.0,
+                "p95": float(df['vote_count'].quantile(0.95)) if not df['vote_count'].empty else 0.0,
+                "count": int(df['vote_count'].count()),
+            },
+            "popularity": {
+                "mean": float(df['popularity'].mean()),
+                "std": float(df['popularity'].std(ddof=0)) if not df['popularity'].empty else 0.0,
+                "p95": float(df['popularity'].quantile(0.95)) if not df['popularity'].empty else 0.0,
+                "count": int(df['popularity'].count()),
+            },
+        }
+        store_feature_baselines(baseline_payload)
+        print("Stored baseline feature statistics for monitoring.")
+    except Exception as exc:
+        print(f" Warning: unable to store training baseline statistics: {exc}")
 
     if df.empty:
         raise TrainingError("No data remaining after cleaning. Cannot train model.")
