@@ -57,10 +57,10 @@ def _get_db_connection(config: dict) -> psycopg2.extensions.connection:
     )
 
 
-def _ensure_prediction_table(config: dict) -> None:
+def _ensure_prediction_table(config: dict) -> bool:
     global _TABLE_ENSURED
     if _TABLE_ENSURED:
-        return
+        return True
 
     try:
         with _get_db_connection(config) as conn:
@@ -79,17 +79,29 @@ def _ensure_prediction_table(config: dict) -> None:
                 )
                 conn.commit()
         _TABLE_ENSURED = True
-    except OperationalError as exc:
-        # Surface a clearer error while keeping the original exception context.
-        raise RuntimeError(
-            "Could not connect to the PostgreSQL database using the configured credentials."
-        ) from exc
+        return True
+    except OperationalError:
+        # Codespaces / CI runs typically do not have a PostgreSQL instance
+        # available.  Instead of failing the entire prediction request we log
+        # the problem and continue without persistence.
+        print(" Warning: unable to connect to PostgreSQL; skipping persistence.")
+        return False
+    except Exception as exc:  # pragma: no cover - defensive logging for unexpected DB errors
+        print(f" Warning: unexpected error while ensuring prediction table: {exc}")
+        return False
 
 
-def _store_prediction(config: dict, request: "PredictionRequest", prediction: float) -> None:
-    """Persist a single prediction to PostgreSQL."""
+def _store_prediction(config: dict, request: "PredictionRequest", prediction: float) -> bool:
+    """Persist a single prediction to PostgreSQL.
 
-    _ensure_prediction_table(config)
+    Returns ``True`` when the prediction is stored successfully.  Any
+    database connectivity problems are treated as a soft failure so that the
+    API can keep serving predictions in environments without PostgreSQL.
+    """
+
+    if not _ensure_prediction_table(config):
+        return False
+
     try:
         with _get_db_connection(config) as conn:
             with conn.cursor() as cur:
@@ -107,10 +119,13 @@ def _store_prediction(config: dict, request: "PredictionRequest", prediction: fl
                     ),
                 )
             conn.commit()
-    except OperationalError as exc:
-        raise RuntimeError("Failed to store prediction because the database connection could not be established.") from exc
+        return True
+    except OperationalError:
+        print(" Warning: unable to connect to PostgreSQL; skipping persistence.")
+        return False
     except Exception as exc:  # pragma: no cover - defensive logging for unexpected DB errors
-        raise RuntimeError(f"Failed to store prediction in the database: {exc}")
+        print(f" Warning: failed to store prediction in the database: {exc}")
+        return False
 
 app = FastAPI(
     title="Movie Popularity Predictor API",
