@@ -1,15 +1,16 @@
 from __future__ import annotations
 
-from airflow.decorators import dag, task
-from datetime import datetime, timezone
-import statistics
 import os
-import shutil
+import statistics
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List
+
 import pandas as pd
 import requests
+from airflow.decorators import dag, task
+from airflow.exceptions import AirflowSkipException
 
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -17,7 +18,6 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from scripts.db_utils import ensure_prediction_schema, get_db_connection
-from scripts.simple_xlsx import read_xlsx
 
 
 def _default_data_root() -> Path:
@@ -31,10 +31,9 @@ def _default_data_root() -> Path:
 
 DATA_ROOT = Path(os.getenv("AIRFLOW_DATA_HOME", _default_data_root()))
 GOOD_DATA_FOLDER = DATA_ROOT / "good-data"
-PROCESSED_DATA_FOLDER = DATA_ROOT / "processed-data"
 
 
-FASTAPI_URL = "http://api:8000/predict"
+FASTAPI_URL = os.getenv("FASTAPI_URL", "http://api:8000/predict")
 
 @dag(
     dag_id="movie_prediction_job",
@@ -44,28 +43,39 @@ FASTAPI_URL = "http://api:8000/predict"
     tags=["prediction", "api"]
 )
 def prediction_dag():
-    
+
     GOOD_DATA_FOLDER.mkdir(parents=True, exist_ok=True)
-    PROCESSED_DATA_FOLDER.mkdir(parents=True, exist_ok=True)
 
     @task
     def check_for_new_data() -> list[str]:
         """Checks for new files in good-data and returns only the next file to process."""
+
+        ensure_prediction_schema()
+        conn = get_db_connection()
+        try:
+            with conn.cursor() as cur:
+                cur.execute("SELECT DISTINCT source_file FROM prediction_runs")
+                already_processed = {row[0] for row in cur.fetchall() if row[0]}
+        finally:
+            conn.close()
 
         patterns = ('*.csv', '*.xlsx')
         discovered: List[Path] = []
         for pattern in patterns:
             discovered.extend(GOOD_DATA_FOLDER.glob(pattern))
 
-        if not discovered:
-            print("No new files found in good-data. Skipping downstream tasks.")
-            return []
-
         # Process files deterministically by modification time, then name.
         discovered.sort(key=lambda p: (p.stat().st_mtime, p.name))
-        next_file = discovered[0]
+
+        candidates = [path for path in discovered if path.name not in already_processed]
+
+        if not candidates:
+            print("No new files found in good-data. Skipping downstream tasks.")
+            raise AirflowSkipException("No unprocessed files available in good-data")
+
+        next_file = candidates[0]
         print(
-            f"Selected {next_file.name} for processing. {len(discovered) - 1} other files remain in the queue."
+            f"Selected {next_file.name} for processing. {len(candidates) - 1} other files remain in the queue."
         )
         return [str(next_file)]
 
@@ -122,9 +132,6 @@ def prediction_dag():
                     vote_counts.append(int(row.get('vote_count', 0)))
                     total_predictions += 1
 
-
-                shutil.move(file_path_obj, PROCESSED_DATA_FOLDER / file_name)
-                print(f"Successfully processed and archived file: {file_name}")
 
                 if predictions:
                     zero_prediction_count = sum(1 for value in predictions if value == 0)

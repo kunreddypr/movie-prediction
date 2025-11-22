@@ -158,6 +158,11 @@ FastAPI (API Docs): http://localhost:8000/docs
 
 Streamlit Web App: http://localhost:8501
 
+Monitoring and Validation
+- Grafana dashboards are pre-provisioned from grafana/dashboards and become available at http://localhost:3000 (login admin / admin). The ingestion-data and model-drift dashboards read directly from the ingestion_events and prediction_runs tables so the graphs update automatically as your Airflow DAGs run.
+- To populate the dashboards with live data, trigger the movie_data_ingestion_pipeline DAG to write ingestion statistics, then trigger movie_prediction_job to push prediction-level statistics. Both DAGs write to the shared Postgres instance used by Grafana.
+- Great Expectations-style quality checks are implemented inside the data_ingestion_dag.py task record_data_quality_metrics, which validates required fields, numeric ranges, and duplicates before saving summary counts. Failures stay in the database for Grafana to visualize; the DAG does not move files out of the good-data folder so they remain available for future audits.
+
 Grafana Monitoring Dashboards: http://localhost:3000 (default login admin / admin)
 
 - **Ingested Data Quality Monitoring** – tracks invalid samples, missing required fields and ingestion issue categories in real time.
